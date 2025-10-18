@@ -1,0 +1,16 @@
+#include <Arduino.h>
+
+void setup() {
+// put your setup code here, to run once:
+pinMode(P1_1,INPUT_PULLUP);
+digitalWrite(P1_1,HIGH); //for pull up
+pinMode(P4_7,OUTPUT);
+}
+
+void loop() {
+// put your main code here, to run repeatedly:
+if(!(digitalRead(P1_1)))
+digitalWrite(P4_7,HIGH);
+else
+digitalWrite(P4_7,LOW);
+}
