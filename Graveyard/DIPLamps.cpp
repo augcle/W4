@@ -13,7 +13,6 @@ void setup() {
     
     P4DIR |= BIT7; // Sets P4.7 as an output (The right lamp)
     
-
 }
 
 void loop() {

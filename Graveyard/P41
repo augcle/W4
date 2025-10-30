@@ -4,33 +4,14 @@
 #include <msp430.h>
 #include <msp430f5529.h>
 
-void init_timerA1(void) {
+void init_timerA1() {
     TA1CTL = TASSEL_2 | MC_1 | TACLR; // Tassel 2 er clock-kilden "Sub main clock" som kører på 1 MHz. MC1 står for timer mode, og 1 betyder up. Som timeren skal tælle op fra 0. TACLR betyder timer clear.
     TA1CCR0 = 999; // Den skal tælle op til 999 clock-cyklusser før den resetter.
-    TA1CCR1 = 500; // Dette er vores 'duty cycle', på 50%. Det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
+    TA1CCR1 = 500; // Dette er vores 'duty cycle', på 50%. Jeg tror det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
     TA1CCTL1 = OUTMOD_7; // Den her bruger vi for at fortæller, at vi bruger output mode 7. Det betyder vi resetter selve outputtet ved CCR1, og resetter timeren ved CCR0. 
 }
 
-void init_timerA0(void) {
-    TA0CTL = TASSEL_2 | MC_1 | TACLR; // 
-    TA0CCR0 = 999;
-    TA0CCTL0 = CCIE; // Det her enabler vores interrupt på timeren A0.  
-}
 
-void init_adc12(void) {
-    ADC12CTL0 = ADC12SHT0_2 | ADC12ON; // Sample&hold tid = 16 ADC klokcykler, ADC on
-    ADC12CTL1 = ADC12SHP;               // Sample-and-hold styres af sampling timer
-    ADC12MCTL0 = ADC12INCH_0;           // Input channel A0 (P6.0)
-    ADC12CTL0 |= ADC12ENC;              // Enable conversion
-    P6SEL |= BIT0;                           // Set P6.0 to analog function
-    P6REN &= ~BIT0;                          // Disable pull resistor
-}
-
-// TimerA0 Compare ISR. Det er er det der faktisk sker hver eneste gang A0 er interruptet.
-#pragma vector=TIMER0_A0_VECTOR
-__interrupt void Timer0_A0_ISR(void) {
-    ADC12CTL0 |= ADC12SC;  // Start ADC conversion.
-}
 
 int main() {
     WDTCTL = WDTPW | WDTHOLD;   // Stop watchdog timer
@@ -38,12 +19,9 @@ int main() {
     // Skærmopsætning
     i2c_init();
     ssd1306_init();
-    ssd1306_clearDisplay();
+    reset_diplay();
 
     init_timerA1();
-    init_timerA0();
-    init_adc12();
-
 
     // Portopsætning
     P2DIR |= BIT0;      // Sæt P2.0 som output
@@ -53,11 +31,9 @@ int main() {
 
     char buffer[20];
     unsigned int duty;
-    unsigned int adc_value;
 
     while(1){
         duty = (TA1CCR1 * 100) / TA1CCR0;
-        adc_value = ADC12MEM0; // Det her er vores værdi, som vi fandt da vi konvereterede det analog input fra potentiometeret.
 
         sprintf(buffer, "TA1R:%u", TA1R);   // Konverter tal til tekst
         ssd1306_printText(0, 0, buffer);       // Skriv på linje 0 (fx øverste linje)
@@ -67,9 +43,6 @@ int main() {
 
         sprintf(buffer, "Duty:%u%%", duty);
         ssd1306_printText(0, 2, buffer);       // Linje 2
-
-        sprintf(buffer, "ADC:%u", adc_value);
-        ssd1306_printText(0, 3, buffer);       // Linje 3
 
         __delay_cycles(200000);
     }
