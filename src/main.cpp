@@ -9,7 +9,7 @@ volatile unsigned int adc_value = 0;
 void init_timerA1(void) {
     TA1CTL = TASSEL_2 | MC_1 | TACLR; // Tassel 2 er clock-kilden "Sub main clock" som kører på 1 MHz. MC1 står for timer mode, og 1 betyder up. Som timeren skal tælle op fra 0. TACLR betyder timer clear.
     TA1CCR0 = 999; // Den skal tælle op til 999 clock-cyklusser før den resetter.
-    TA1CCR1 = 500; // Dette er vores 'duty cycle', på 50%. Det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
+    TA1CCR1 = 500; // Dette er vores initial 'duty cycle', på 50%. Det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
     TA1CCTL1 = OUTMOD_7; // Den her bruger vi for at fortæller, at vi bruger output mode 7. Det betyder vi resetter selve outputtet ved CCR1, og resetter timeren ved CCR0. 
 }
 
@@ -30,22 +30,23 @@ void init_adc12(void) {
     ADC12CTL0 |= ADC12ENC;                        // enable conversion
 }
 
-// TimerA0 Compare ISR. Det er er det der faktisk sker hver eneste gang A0 er interruptet.
+// TimerA0 Compare ISR. Det er er det der faktisk sker hver eneste gang A0 er interruptet. Så hver 999 svingninger. 
 #pragma vector=TIMER0_A0_VECTOR
 __interrupt void Timer0_A0_ISR(void) {
-    ADC12CTL0 |= ADC12SC;  // Start ADC conversion.
+    ADC12CTL0 |= ADC12SC;  // Start ADC conversion, og implicit gemmer vi den i MEM0. 
 }
 
 #pragma vector=ADC12_VECTOR
-__interrupt void ADC12_ISR(void)
-{
-    unsigned int iv = ADC12IV;     // Læs vektor (rydder kilde)
-    if (iv == 6) {                 // 6 = ADC12IFG0 (ADC12MEM0 færdig)
+__interrupt void ADC12_ISR(void) {
+    unsigned int iv = ADC12IV;
+    if (iv == 6) {  // ADC12IFG0
         adc_value = ADC12MEM0;
+        // ← her opdaterer vi PWM'en direkte, så der er minimal forsinkelse:
+        TA1CCR1 = ((unsigned long)adc_value * TA1CCR0) / 4095;
     }
-    // hvis du ønsker, kan du også håndtere andre iv værdier
 }
 
+unsigned int duty = 0;
 
 int main() {
     WDTCTL = WDTPW | WDTHOLD;   // Stop watchdog timer. Det skal vi bare. 
@@ -67,18 +68,18 @@ int main() {
     __enable_interrupt();
 
     char buffer[20];
-    unsigned int duty;
 
     while(1){
-        duty = (TA1CCR1 * 100) / TA1CCR0;
         
+    duty = ((unsigned long)TA1CCR1 * 100) / TA1CCR0;    
+
         sprintf(buffer, "TA1R:%u", TA1R);   // Konverter tal til tekst
         ssd1306_printText(0, 0, buffer);       // Skriv på linje 0 (fx øverste linje)
 
-        sprintf(buffer, "CCR1:%u", TA1CCR1);
+        sprintf(buffer, "CCR1:%03u", TA1CCR1);
         ssd1306_printText(0, 1, buffer);       // Linje 1
 
-        sprintf(buffer, "Duty:%u%%", duty);
+        sprintf(buffer, "Duty:%03u%%", duty);
         ssd1306_printText(0, 2, buffer);       // Linje 2
 
         sprintf(buffer, "ADC:%04u", adc_value);
