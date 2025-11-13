@@ -4,12 +4,17 @@
 #include <msp430.h>
 #include <msp430f5529.h>
 
-volatile unsigned int adc_value = 0;
+#define ADC_MAX 4095 // Eftersom vi kører 12-bit kan vi maksimalt måle 4095 i vores ADC måling. 
+#define ADC_SET 2047 // Vi ønsker en ADC værdi på halvdelen af vores maks. Vi det giver os en duty cycle på 50%. 
+#define PWM_MAX 999 // TA1CCR0 Vores totale clockcyclus
+#define PWM_SET 500 // TA1CCR1 Vores duty clockcyclus
+
+volatile unsigned int adc_value = 0; // Den her bruger vi til at holde på vores måle-data
 
 void init_timerA1(void) {
     TA1CTL = TASSEL_2 | MC_1 | TACLR; // Tassel 2 er clock-kilden "Sub main clock" som kører på 1 MHz. MC1 står for timer mode, og 1 betyder up. Som timeren skal tælle op fra 0. TACLR betyder timer clear.
-    TA1CCR0 = 999; // Den skal tælle op til 999 clock-cyklusser før den resetter.
-    TA1CCR1 = 500; // Dette er vores initial 'duty cycle', på 50%. Det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
+    TA1CCR0 = PWM_MAX; // Den skal tælle op til 999 clock-cyklusser før den resetter.
+    TA1CCR1 = PWM_SET; // Dette er vores initial 'duty cycle', på 50%. Det betyder at vi tæller op til 500, som er halvdelen af vores frekvens på 1000. 
     TA1CCTL1 = OUTMOD_7; // Den her bruger vi for at fortæller, at vi bruger output mode 7. Det betyder vi resetter selve outputtet ved CCR1, og resetter timeren ved CCR0. 
 }
 
@@ -33,16 +38,14 @@ void init_adc12(void) {
 // TimerA0 Compare ISR. Det er er det der faktisk sker hver eneste gang A0 er interruptet. Så hver 999 svingninger. 
 #pragma vector=TIMER0_A0_VECTOR
 __interrupt void Timer0_A0_ISR(void) {
-    ADC12CTL0 |= ADC12SC;  // Start ADC conversion, og implicit gemmer vi den i MEM0. 
+    ADC12CTL0 |= ADC12SC;  // Start ADC conversion, og implicit gemmer vi den i MEM0.
 }
 
 #pragma vector=ADC12_VECTOR
 __interrupt void ADC12_ISR(void) {
     unsigned int iv = ADC12IV;
     if (iv == 6) {  // ADC12IFG0
-        adc_value = ADC12MEM0;
-        // ← her opdaterer vi PWM'en direkte, så der er minimal forsinkelse:
-        TA1CCR1 = ((unsigned long)adc_value * TA1CCR0) / 4095;
+        adc_value = ADC12MEM0; // Vi gemmer vores data fra MEM0 over i en variabel som vi kan arbejde med. 
     }
 }
 
@@ -71,6 +74,20 @@ int main() {
 
     while(1){
         
+        long ADC_DUTY = ((long)adc_value * PWM_MAX) / ADC_MAX; 
+        long SET_DUTY = ((long)ADC_SET * PWM_MAX) / ADC_MAX;
+        long error = SET_DUTY - ADC_DUTY; // Vi beregner hvor stor forskellen er mellem det vi ønsker, og det vi har målt. 
+
+        long delta = error * 0.25; //Vi kan ikke bare prøve at justere med den totale fejlmargin, så ville vi overskyde og ende med at svinge frem og tilbage. Vi skal gøre det graduelt, så vi tager 25% af dens error. 
+        long new_CCR1 = TA1CCR1 + delta; // Update the CCR1
+
+        // Check if we even can go within the bounds
+        if (new_CCR1 < 0) new_CCR1 = 0; // Cant go that low
+        if (new_CCR1 > PWM_MAX) new_CCR1 = PWM_MAX; // Cant go that high
+        
+        // ← her opdaterer vi PWM'en direkte, så der er minimal forsinkelse:
+        TA1CCR1 = (unsigned int)new_CCR1;
+
     duty = ((unsigned long)TA1CCR1 * 100) / TA1CCR0;    
 
         sprintf(buffer, "TA1R:%u", TA1R);   // Konverter tal til tekst
@@ -84,6 +101,9 @@ int main() {
 
         sprintf(buffer, "ADC:%04u", adc_value);
         ssd1306_printText(0, 3, buffer);       // Linje 3
+
+        sprintf(buffer, "Setp:%04u", PWM_SET);
+        ssd1306_printText(0, 4, buffer);
 
         __delay_cycles(200000);
     }
